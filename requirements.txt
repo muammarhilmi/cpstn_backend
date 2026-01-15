@@ -1,0 +1,11 @@
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+PyMySQL
+Flask-JWT-Extended==4.6.0
+Werkzeug==3.0.3
+Flask-Cors
+Flask-Bcrypt
+python-dotenv
+google-auth
+google-auth-oauthlib
+PyJWT

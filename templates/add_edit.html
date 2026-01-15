@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Form Tips</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<h2>{{ tip.title if tip else "Tambah Tips Baru" }}</h2>
+
+<form method="POST">
+    <input type="text" name="title" placeholder="Judul Tips"
+           value="{{ tip.title if tip else '' }}" required>
+
+    <textarea name="content" placeholder="Isi artikel tips"
+              rows="6" required>{{ tip.content if tip else '' }}</textarea>
+
+    <input type="text" name="image_url"
+           placeholder="URL Gambar (opsional)"
+           value="{{ tip.image_url if tip else '' }}">
+
+    <button type="submit">Simpan</button>
+</form>
+
+<a href="/">← Kembali</a>
+
+</body>
+</html>

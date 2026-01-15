@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Tips Kuku</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<h1>💅 Admin Tips Perawatan Kuku</h1>
+<a href="/add" class="btn">+ Tambah Tips</a>
+
+{% for tip in tips %}
+<div class="card">
+    <h3>{{ tip.title }}</h3>
+    <p>{{ tip.content[:150] }}...</p>
+
+    {% if tip.image_url %}
+    <img src="{{ tip.image_url }}">
+    {% endif %}
+
+    <div class="actions">
+        <a href="/edit/{{ tip.id }}">Edit</a>
+        <a href="/delete/{{ tip.id }}" class="danger">Hapus</a>
+    </div>
+</div>
+{% endfor %}
+
+</body>
+</html>
