@@ -6,7 +6,6 @@ from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-import requests
 
 # 1. Load Environment Variables
 load_dotenv()
@@ -16,15 +15,12 @@ app = Flask(__name__)
 # --- KONFIGURASI APP ---
 app.secret_key = os.getenv('SECRET_KEY', 'nailcare_secretkey')
 
-db_host = os.getenv('DB_HOST', 'localhost')
-db_user = os.getenv('DB_USER', 'root')
-db_pass = os.getenv('DB_PASS', '') 
-db_name = os.getenv('DB_NAME', 'nail_beauty')
-db_port = os.getenv('DB_PORT', '3306')
-
-app.config['SQLALCHEMY_DATABASE_URI'] = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+# Database Config - Menggunakan database nail_beauty
+app.config['SQLALCHEMY_DATABASE_URI'] = "mysql+pymysql://root@localhost/nail_beauty"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'default-secret-key')
+
+# JWT Config
+app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'super-secret-key')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=7)
 
 # Inisialisasi Library
@@ -40,24 +36,35 @@ CORS(app)
 class User(db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(100), unique=True, nullable=False)
+    name = db.Column(db.String(100), nullable=True) 
+    email = db.Column(db.String(150), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
-    google_id = db.Column(db.String(255), nullable=True)
+    google_id = db.Column(db.String(255), nullable=True) 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_json(self):
-        return {"id": self.id, "name": self.name, "email": self.email}
+        return {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email
+        }
 
 class Tip(db.Model):
     __tablename__ = "tips"
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(200), nullable=False)
+    title = db.Column(db.String(150), nullable=False)
     content = db.Column(db.Text, nullable=False)
+    # image_url tetap ada di DB agar tidak error, tapi tidak dikirim ke JSON/Frontend
+    image_url = db.Column(db.String(255), nullable=True) 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_json(self):
-        return {"id": self.id, "title": self.title, "content": self.content, "created_at": self.created_at}
+        return {
+            "id": self.id,
+            "title": self.title,
+            "content": self.content,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        }
 
 # ==========================================
 #                AUTH ROUTES 
@@ -66,59 +73,79 @@ class Tip(db.Model):
 @app.route('/api/register', methods=['POST'])
 def register():
     data = request.json
-    hashed_password = bcrypt.generate_password_hash(data.get('password')).decode('utf-8')
-    new_user = User(name=data.get('name'), email=data.get('email'), password=hashed_password)
-    try:
-        db.session.add(new_user)
-        db.session.commit()
-        return jsonify({"message": "Registrasi berhasil"}), 201
-    except:
+    email = data.get('email')
+    password = data.get('password')
+    name = data.get('name', '')
+
+    if User.query.filter_by(email=email).first():
         return jsonify({"message": "Email sudah terdaftar"}), 400
+
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+    new_user = User(name=name, email=email, password=hashed_password)
+    
+    db.session.add(new_user)
+    db.session.commit()
+    return jsonify({"message": "Registrasi berhasil"}), 201
 
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
-    user = User.query.filter_by(email=data.get('email')).first()
-    if user and bcrypt.check_password_hash(user.password, data.get('password')):
-        access_token = create_access_token(identity=user.id)
-        return jsonify({"message": "Login berhasil", "access_token": access_token, "user": user.to_json()}), 200
+    email = data.get('email')
+    password = data.get('password')
+
+    user = User.query.filter_by(email=email).first()
+
+    if user and user.password and bcrypt.check_password_hash(user.password, password):
+        access_token = create_access_token(identity=str(user.id))
+        return jsonify({
+            "message": "Login berhasil",
+            "access_token": access_token,
+            "user": user.to_json()
+        }), 200
     return jsonify({"message": "Email atau password salah"}), 401
 
 @app.route('/api/google-auth', methods=['POST'])
 def google_auth():
     data = request.json
-    user = User.query.filter_by(email=data.get('email')).first()
-    if not user:
-        user = User(name=data.get('name'), email=data.get('email'), google_id=data.get('google_id'), password='')
+    email = data.get('email')
+    name = data.get('name')
+    google_id = data.get('google_id')
+
+    user = User.query.filter_by(email=email).first()
+
+    if user:
+        if not user.google_id:
+            user.google_id = google_id
+            user.name = name
+            db.session.commit()
+    else:
+        user = User(name=name, email=email, google_id=google_id, password='')
         db.session.add(user)
         db.session.commit()
-    access_token = create_access_token(identity=user.id)
-    return jsonify({"message": "Login Google Berhasil", "access_token": access_token, "user": user.to_json()}), 200
-
-@app.route('/api/nearby-salons', methods=['GET'])
-def get_nearby_salons():
-    lat = float(request.args.get('lat', -6.86))
-    lng = float(request.args.get('lng', 109.13))
-    salons = [
-        {"name": "Dummy Salon A", "address": "Jl. Mawar No. 10", "rating": 4.5, "lat": lat + 0.002, "lng": lng + 0.002, "place_id": "d1"},
-        {"name": "Dummy Salon B", "address": "Jl. Sudirman No. 25", "rating": 4.8, "lat": lat - 0.003, "lng": lng - 0.001, "place_id": "d2"}
-    ]
-    return jsonify(salons), 200
+    
+    access_token = create_access_token(identity=str(user.id))
+    return jsonify({
+        "message": "Login Google Berhasil",
+        "access_token": access_token,
+        "user": user.to_json()
+    }), 200
 
 # ==========================================
-#              ADMIN & TIPS ROUTES 
+#                TIPS API
 # ==========================================
 
 @app.route('/api/tips', methods=['GET'])
 def get_tips():
-    tips = Tip.query.all()
+    tips = Tip.query.order_by(Tip.created_at.desc()).all()
     return jsonify([tip.to_json() for tip in tips]), 200
 
-@app.route('/admin')
-def admin_dashboard():
-    if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
-    return render_template('admin.html', users=User.query.all(), tips=Tip.query.all(), 
-                           total_users=User.query.count(), total_tips=Tip.query.count())
+# ==========================================
+#                ADMIN ROUTES 
+# ==========================================
+
+@app.route('/')
+def home():
+    return redirect(url_for('admin_login'))
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
@@ -129,24 +156,45 @@ def admin_login():
         flash("Username atau Password salah!", "danger")
     return render_template('admin_login.html')
 
+@app.route('/admin')
+def admin_dashboard():
+    if not session.get('admin_logged_in'):
+        return redirect(url_for('admin_login'))
+    users = User.query.all()
+    tips = Tip.query.all()
+    return render_template('admin.html', 
+                           users=users, 
+                           tips=tips, 
+                           total_users=len(users), 
+                           total_tips=len(tips))
+
 @app.route('/admin/logout')
 def admin_logout():
     session.pop('admin_logged_in', None)
     return redirect(url_for('admin_login'))
 
-# --- FUNGSI CRUD ADMIN ---
+# --- CRUD USER (ADMIN) ---
 
 @app.route('/admin/add-user', methods=['POST'])
 def admin_add_user():
     if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
-    hashed_password = bcrypt.generate_password_hash(request.form.get('password')).decode('utf-8')
-    new_user = User(name=request.form.get('name'), email=request.form.get('email'), password=hashed_password)
+    
+    name = request.form.get('name')
+    email = request.form.get('email')
+    password = request.form.get('password')
+    
+    if User.query.filter_by(email=email).first():
+        flash("Email sudah terdaftar!", "danger")
+        return redirect(url_for('admin_dashboard'))
+
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+    new_user = User(name=name, email=email, password=hashed_password)
+    
     db.session.add(new_user)
     db.session.commit()
-    flash("User berhasil ditambahkan!", "success")
+    flash(f"User {name} berhasil ditambahkan!", "success")
     return redirect(url_for('admin_dashboard'))
 
-# FIX: Fungsi delete_user yang tadinya hilang sehingga bikin BuildError
 @app.route('/admin/delete-user/<int:id>')
 def delete_user(id):
     if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
@@ -157,13 +205,16 @@ def delete_user(id):
         flash("User berhasil dihapus!", "warning")
     return redirect(url_for('admin_dashboard'))
 
+# --- CRUD TIPS (ADMIN) ---
+
 @app.route('/admin/add-tip', methods=['POST'])
 def admin_add_tip():
     if not session.get('admin_logged_in'): return redirect(url_for('admin_login'))
-    new_tip = Tip(title=request.form.get('title'), content=request.form.get('content'))
+    new_tip = Tip(title=request.form.get('title'), 
+                  content=request.form.get('content'))
     db.session.add(new_tip)
     db.session.commit()
-    flash("Tips dipublikasikan!", "success")
+    flash("Tips berhasil ditambahkan!", "success")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/delete-tip/<int:id>')
@@ -173,7 +224,7 @@ def delete_tip(id):
     if tip:
         db.session.delete(tip)
         db.session.commit()
-        flash("Tips dihapus!", "warning")
+        flash("Tips berhasil dihapus!", "warning")
     return redirect(url_for('admin_dashboard'))
 
 if __name__ == "__main__":
