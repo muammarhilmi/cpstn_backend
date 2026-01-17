@@ -1,0 +1,13 @@
+# Folder lingkungan virtual
+venv/
+env/
+
+# File konfigurasi sensitif
+.env
+
+# Cache Python
+__pycache__/
+*.pyc
+
+# Folder VS Code
+.vscode/
