@@ -38,17 +38,14 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=True) 
     email = db.Column(db.String(150), unique=True, nullable=False)
-    password = db.Column(db.String(255), nullable=False)
+    password = db.Column(db.String(255), nullable=True) # Dibuat True agar Google Auth lancar
     google_id = db.Column(db.String(255), nullable=True) 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_json(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "email": self.email
-        }
-
+        return {"id": self.id, "name": self.name or "User", "email": self.email}
+    
+    
 class Tip(db.Model):
     __tablename__ = "tips"
     id = db.Column(db.Integer, primary_key=True)
@@ -113,22 +110,37 @@ def google_auth():
 
     user = User.query.filter_by(email=email).first()
 
-    if user:
-        if not user.google_id:
-            user.google_id = google_id
-            user.name = name
-            db.session.commit()
-    else:
-        user = User(name=name, email=email, google_id=google_id, password='')
+    if not user:
+        # Jika user belum ada, buat baru
+        user = User(
+            email=email, 
+            name=name, 
+            google_id=google_id, 
+            password="GOOGLE_USER" # Tambahkan ini supaya tidak Error 1048
+        )
         db.session.add(user)
         db.session.commit()
     
-    access_token = create_access_token(identity=str(user.id))
+    # Return data user sesuai format Gambar 1 (id, name, email)
     return jsonify({
+        "status": "success",
         "message": "Login Google Berhasil",
-        "access_token": access_token,
-        "user": user.to_json()
+        "user": {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email
+        }
     }), 200
+
+@app.route('/api/reset-password', methods=['POST'])
+def reset_password():
+    data = request.json
+    user = User.query.filter_by(email=data.get('email')).first()
+    if user:
+        user.password = bcrypt.generate_password_hash(data.get('password')).decode('utf-8')
+        db.session.commit()
+        return jsonify({"message": "Password berhasil diperbarui"}), 200
+    return jsonify({"message": "Email tidak ditemukan"}), 404
 
 # ==========================================
 #                TIPS API
